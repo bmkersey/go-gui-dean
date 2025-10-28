@@ -17,5 +17,5 @@ services:
       "--sql-mode=STRICT_TRANS_TABLES,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION"
       ]
     volumes:
-      - ./my_sql_data:/var/lib/mysql
+      - ../my_sql_data:/var/lib/mysql
       - ./init:/docker-entrypoint-initdb.d
