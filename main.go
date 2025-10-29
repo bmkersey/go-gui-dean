@@ -12,10 +12,16 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
 	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/widget"
 )
 
 type District struct {
+	ID   int
+	Name string
+}
+
+type School struct {
 	ID   int
 	Name string
 }
@@ -66,17 +72,48 @@ func main() {
 	// --- GUI ---
 	myApp := app.New()
 	win := myApp.NewWindow("District Selector")
-	win.Resize(fyne.NewSize(400, 200))
+	win.Resize(fyne.NewSize(520, 260))
 
-	label := widget.NewLabel("District Selector")
-	dropdown := widget.NewSelect(names, func(selected string) {
-		label.SetText(fmt.Sprintf("You selected: %s", selected))
-	})
+	districtDropdown := widget.NewSelect(names, nil)
+	districtDropdown.PlaceHolder = "Select a district..."
+
+	schoolDropdown := widget.NewSelect([]string{}, nil)
+	schoolDropdown.PlaceHolder = "Select a school..."
+	schoolDropdown.Disable()
+
+	districtDropdown.OnChanged = func(name string) {
+		var distID int
+		for _, d := range districts {
+			if d.Name == name {
+				distID = d.ID
+				break
+			}
+		}
+		if distID == 0 {
+			dialog.ShowError(fmt.Errorf("could not find district ID for %q", name), win)
+			return
+		}
+		schools, err := fetchSchoolsByDistrict(db, distID)
+		if err != nil {
+			dialog.ShowError(fmt.Errorf("load schools: %w", err), win)
+		}
+
+		schoolNames := make([]string, len(schools))
+		for i, s := range schools {
+			schoolNames[i] = s.Name
+		}
+		schoolDropdown.Options = schoolNames
+		schoolDropdown.SetSelected("") // clear previous choice
+		schoolDropdown.Enable()
+		schoolDropdown.Refresh()
+	}
 
 	content := container.NewVBox(
-		widget.NewLabel("📋 Districts"),
-		dropdown,
-		label,
+		widget.NewLabel("📚 District & School Browser"),
+		widget.NewLabel("District"),
+		districtDropdown,
+		widget.NewLabel("School"),
+		schoolDropdown,
 	)
 
 	win.SetContent(content)
@@ -99,4 +136,27 @@ func fetchDistricts(db *sql.DB) ([]District, error) {
 		districts = append(districts, d)
 	}
 	return districts, rows.Err()
+}
+
+func fetchSchoolsByDistrict(db *sql.DB, districtID int) ([]School, error) {
+	rows, err := db.Query(`
+		SELECT id, name
+		FROM schools
+		WHERE district_id = ?
+		ORDER BY name
+	`, districtID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []School
+	for rows.Next() {
+		var s School
+		if err := rows.Scan(&s.ID, &s.Name); err != nil {
+			return nil, err
+		}
+		out = append(out, s)
+	}
+	return out, rows.Err()
 }
