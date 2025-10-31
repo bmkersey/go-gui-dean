@@ -26,6 +26,16 @@ type School struct {
 	Name string
 }
 
+type Student struct {
+	ID          int
+	FirstName   string
+	LastName    string
+	GradeLevel  sql.NullInt16
+	ParentEmail sql.NullString
+	Status      string
+	EnrolledOn  sql.NullString
+}
+
 func main() {
 	if err := godotenv.Load(); err != nil {
 		log.Println("No .env file found, using defaults if any")
@@ -81,6 +91,9 @@ func main() {
 	schoolDropdown.PlaceHolder = "Select a school..."
 	schoolDropdown.Disable()
 
+	studentBox := container.NewVBox(widget.NewLabel("👩‍🎓 Students"))
+	studentBox.Hide()
+
 	districtDropdown.OnChanged = func(name string) {
 		var distID int
 		for _, d := range districts {
@@ -106,6 +119,39 @@ func main() {
 		schoolDropdown.SetSelected("") // clear previous choice
 		schoolDropdown.Enable()
 		schoolDropdown.Refresh()
+
+		schoolDropdown.OnChanged = func(schoolName string) {
+			var schoolID int
+			for _, s := range schools {
+				if s.Name == schoolName {
+					schoolID = s.ID
+					break
+				}
+			}
+			students, err := fetchStudentsBySchool(db, schoolID)
+			if err != nil {
+				dialog.ShowError(err, win)
+				return
+			}
+
+			studentBox.Objects = []fyne.CanvasObject{widget.NewLabel("👩‍🎓 Students")}
+			if len(students) == 0 {
+				studentBox.Add(widget.NewLabel("No students found for this school."))
+				studentBox.Show()
+				studentBox.Refresh()
+				return
+			}
+
+			for _, s := range students {
+				stu := s // capture for closure
+				btn := widget.NewButton(fmt.Sprintf("%s %s", s.FirstName, s.LastName), func() {
+					showStudentDetails(win, stu)
+				})
+				studentBox.Add(btn)
+			}
+			studentBox.Show()
+			studentBox.Refresh()
+		}
 	}
 
 	content := container.NewVBox(
@@ -114,6 +160,7 @@ func main() {
 		districtDropdown,
 		widget.NewLabel("School"),
 		schoolDropdown,
+		studentBox,
 	)
 
 	win.SetContent(content)
@@ -159,4 +206,36 @@ func fetchSchoolsByDistrict(db *sql.DB, districtID int) ([]School, error) {
 		out = append(out, s)
 	}
 	return out, rows.Err()
+}
+
+func fetchStudentsBySchool(db *sql.DB, schoolID int) ([]Student, error) {
+	rows, err := db.Query(`
+		SELECT id, first_name, last_name, grade_level, parent_email, status, enrolled_on
+		FROM students
+		WHERE school_id = ?
+		ORDER BY last_name, first_name`, schoolID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []Student
+	for rows.Next() {
+		var s Student
+		if err := rows.Scan(&s.ID, &s.FirstName, &s.LastName, &s.GradeLevel, &s.ParentEmail, &s.Status, &s.EnrolledOn); err != nil {
+			return nil, err
+		}
+		out = append(out, s)
+	}
+	return out, rows.Err()
+}
+
+func showStudentDetails(win fyne.Window, s Student) {
+	info := fmt.Sprintf(
+		"Name: %s %s\nGrade: %v\nStatus: %s\nParent: %v\nEnrolled On: %v",
+		s.FirstName, s.LastName,
+		s.GradeLevel.Int16, s.Status,
+		s.ParentEmail.String, s.EnrolledOn.String,
+	)
+	dialog.ShowInformation("Student Details", info, win)
 }
